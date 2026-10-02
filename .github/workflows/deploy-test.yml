@@ -1,0 +1,26 @@
+name: Deploy test Worker
+on:
+  push:
+    branches: [aurelia-commerce-cloudflare]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aurelia-test-api
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run check
+      - run: npm run deploy:test

@@ -12,5 +12,20 @@
     "database_name": "aurelia-db",
     "database_id": "00000000-0000-0000-0000-000000000000",
     "migrations_dir": "migrations"
-  }]
+  }],
+  "env": {
+    "test": {
+      "name": "aurelia-api-test",
+      "vars": {
+        "DEMO_MODE": "true",
+        "ALLOWED_ORIGINS": "https://aurelia-ui-test.pages.dev,https://aurelia-test.pages.dev"
+      },
+      "d1_databases": [{
+        "binding": "DB",
+        "database_name": "aurelia-test-db",
+        "database_id": "459d54cc-0768-4f5d-92e7-7da71d3d7396",
+        "migrations_dir": "migrations"
+      }]
+    }
+  }
 }
