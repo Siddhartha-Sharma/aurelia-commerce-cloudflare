@@ -16,3 +16,7 @@ Test data endpoints are explicitly enabled by DEMO_MODE=true. Owner headers are 
 For automatic deployment, the supplied GitHub Actions workflow deploys the current branch after tests/typecheck. Set repository Actions secrets CLOUDFLARE_API_TOKEN (Workers edit and D1 access for this account) and CLOUDFLARE_ACCOUNT_ID. Use an API token, not the local OAuth credential. Workflow execution is pending those secrets and a push. Never put a seed/reset command in auto-deploy. Reviewed schema migrations run separately.
 
 First deployment requires account authorization; configuration alone does not establish live deployment success. Sonar files remain unrelated uncommitted work and should not be staged with this deployment feature.
+
+## Independent repository secrets
+
+Store CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID separately in each repository Actions secrets. Both repositories can use the same account and token with Pages, Workers and D1 permissions. Rotate both copies when the token changes. Each workflow deploys only its own repository. Secret updates require a workflow rerun or branch push. No cross-repository checkout or organization subscription is needed. The UI deployment targets the existing aurelia-test Pages project. Database seed/reset is not part of deployment.
