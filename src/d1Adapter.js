@@ -4,6 +4,7 @@ import { DEFAULT_FEATURES } from "./domain/featureDefaults.js";
 
 const scoped = new Set(["cart", "wishlist", "profile", "addresses", "sharedProducts"]);
 const defaults = {
+  themeConfig: {shop:"sunrise",dashboard:"classic"},
   features: DEFAULT_FEATURES, paymentConfig: { upiId: "", merchantName: "Aurelia Jewellery" },
   festivalFeed: { mode: "auto", festivalSlug: "diwali", from: "", to: "" },
   profile: { name: "", phone: "", email: "", address: "", landmark: "", city: "", state: "", pincode: "" },

@@ -7,7 +7,7 @@ const customerOperations = new Set([
   "cart.get", "cart.save", "wishlist.get", "wishlist.save", "profile.get", "profile.save",
   "addresses.list", "addresses.get", "addresses.create", "addresses.update", "addresses.remove",
   "sharedProducts.list", "sharedProducts.get", "sharedProducts.create", "sharedProducts.update", "sharedProducts.remove",
-  "features.get", "paymentConfig.get", "festivalFeed.get", "campaignImageCleanup.get",
+  "themeConfig.get", "features.get", "paymentConfig.get", "festivalFeed.get", "campaignImageCleanup.get",
   "analytics.recordView", "analytics.trending", "analytics.counts", "stockAlerts.subscribe",
 ]);
 

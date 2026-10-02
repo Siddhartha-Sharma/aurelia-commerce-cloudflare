@@ -2,7 +2,7 @@ import { createRequestId } from "./requestId.js";
 import { ServiceError, requireValue } from "./serviceError.js";
 
 export const COLLECTIONS = Object.freeze(["products", "customers", "orders", "payments", "inventoryMovements", "addresses", "sharedProducts", "stockAlerts"]);
-export const VALUES = Object.freeze(["cart", "wishlist", "profile", "features", "paymentConfig", "customPurities", "festivalFeed", "campaignImageCleanup", "productViews"]);
+export const VALUES = Object.freeze(["cart", "wishlist", "profile", "features", "themeConfig", "paymentConfig", "customPurities", "festivalFeed", "campaignImageCleanup", "productViews"]);
 const clone = value => structuredClone(value);
 const failMissing = id => { throw new ServiceError(`Record ${id} was not found.`, { code: "NOT_FOUND", status: 404 }); };
 const money = value => Math.round(Number(value) * 100) / 100;
@@ -16,6 +16,11 @@ function validateRecord(resource, record) {
     requireValue(typeof record.name === "string" && record.name.trim(), "Product name is required.");
     requireValue(Number.isInteger(record.stock) && record.stock >= 0, "Stock must be a non-negative integer.");
     requireValue(Number.isFinite(record.price) && record.price >= 0, "Price must be a non-negative number.");
+  }
+  if (resource === "addresses") {
+    requireValue(typeof record.name === "string" && record.name.trim().length >= 2, "Recipient name is required.");
+    requireValue(typeof record.phone === "string" && /^[6-9]\d{9}$/.test(record.phone), "Enter a valid Indian mobile number.");
+    requireValue(typeof record.address === "string" && record.address.trim().length >= 5 && typeof record.city === "string" && record.city.trim().length >= 2 && typeof record.state === "string" && record.state.trim().length >= 2 && /^[1-9]\d{5}$/.test(record.pincode || ""), "A complete delivery address is required.");
   }
   if (resource === "customers") {
     requireValue(typeof record.name === "string" && record.name.trim(), "Customer name is required.");
@@ -86,6 +91,7 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
       if (resource === "cart") requireValue(input.data.every(line => validId(line.productId) && Number.isInteger(line.qty) && line.qty > 0), "Invalid cart line.");
       if (resource === "wishlist") requireValue(input.data.every(validId), "Wishlist must contain product IDs.");
       if (resource === "paymentConfig") requireValue(typeof input.data.upiId === "string" && typeof input.data.merchantName === "string" && (!input.data.upiId || /^[\w.\-]{2,256}@[\w]{2,64}$/.test(input.data.upiId)), "Invalid payment configuration.");
+      if (resource === "themeConfig") requireValue(['shop','dashboard'].every(area => ['classic','sunrise','ocean'].includes(input.data[area])) && Object.keys(input.data).every(key => ['shop','dashboard'].includes(key)), "Choose a valid shop and dashboard theme preset.");
       if (resource === "features") requireValue(Object.values(input.data).every(value => typeof value === "boolean"), "Feature settings must be boolean.");
       await tx.write(resource, input.data);
       return clone(input.data);
