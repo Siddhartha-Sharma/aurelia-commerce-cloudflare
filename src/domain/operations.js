@@ -91,7 +91,7 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
       if (resource === "cart") requireValue(input.data.every(line => validId(line.productId) && Number.isInteger(line.qty) && line.qty > 0), "Invalid cart line.");
       if (resource === "wishlist") requireValue(input.data.every(validId), "Wishlist must contain product IDs.");
       if (resource === "paymentConfig") requireValue(typeof input.data.upiId === "string" && typeof input.data.merchantName === "string" && (!input.data.upiId || /^[\w.\-]{2,256}@[\w]{2,64}$/.test(input.data.upiId)), "Invalid payment configuration.");
-      if (resource === "themeConfig") requireValue(['shop','dashboard'].every(area => ['classic','sunrise','ocean'].includes(input.data[area])) && Object.keys(input.data).every(key => ['shop','dashboard'].includes(key)), "Choose a valid shop and dashboard theme preset.");
+      if (resource === "themeConfig") requireValue(['shop','dashboard'].every(area => ['classic','sunrise','ocean'].includes(input.data[area])) && Object.keys(input.data).every(key => ['shop','dashboard','dashboardFont'].includes(key)) && (input.data.dashboardFont === undefined || ['manrope','inter','jakarta','dm','plex'].includes(input.data.dashboardFont)), "Choose a valid shop and dashboard theme preset.");
       if (resource === "features") requireValue(Object.values(input.data).every(value => typeof value === "boolean"), "Feature settings must be boolean.");
       await tx.write(resource, input.data);
       return clone(input.data);
