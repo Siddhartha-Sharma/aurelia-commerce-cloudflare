@@ -1,4 +1,6 @@
 node_modules/
+.scannerwork/
+coverage/
 .wrangler/
 .dev.vars
 .env
