@@ -2,7 +2,7 @@ import { createRequestId } from "./requestId.js";
 import { ServiceError, requireValue } from "./serviceError.js";
 
 export const COLLECTIONS = Object.freeze(["products", "customers", "orders", "payments", "inventoryMovements", "addresses", "sharedProducts", "stockAlerts"]);
-export const VALUES = Object.freeze(["cart", "wishlist", "profile", "features", "themeConfig", "paymentConfig", "customPurities", "festivalFeed", "campaignImageCleanup", "productViews"]);
+export const VALUES = Object.freeze(["cart", "wishlist", "profile", "features", "themeConfig", "paymentConfig", "shopProfile", "customPurities", "festivalFeed", "campaignImageCleanup", "productViews"]);
 const clone = value => structuredClone(value);
 const failMissing = id => { throw new ServiceError(`Record ${id} was not found.`, { code: "NOT_FOUND", status: 404 }); };
 const money = value => Math.round(Number(value) * 100) / 100;
@@ -90,6 +90,20 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
       else requireValue(isObject(input.data), "Data must be an object.");
       if (resource === "cart") requireValue(input.data.every(line => validId(line.productId) && Number.isInteger(line.qty) && line.qty > 0), "Invalid cart line.");
       if (resource === "wishlist") requireValue(input.data.every(validId), "Wishlist must contain product IDs.");
+      if (resource === "shopProfile") {
+        const p=input.data, decimal=v=>typeof v==='string' && /^\d+(\.\d{1,6})?$/.test(v) && Number.isFinite(Number(v)) && Number(v)<=1e12;
+        requireValue(p.version===1 && typeof p.name==='string' && p.name.trim().length>0 && p.name.length<=150 && typeof p.state==='string' && p.state.length>0, "Shop name and state are required.");
+        requireValue(['unconfigured','regular','composition','unregistered'].includes(p.gstStatus), "Choose a valid GST registration status.");
+        if(['regular','composition'].includes(p.gstStatus)) requireValue(typeof p.gstin==='string' && /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(p.gstin), "Enter a valid GSTIN format.");
+        requireValue(Array.isArray(p.rates) && p.rates.length<=30, "Use up to 30 purity rates.");
+        const keys=new Set();
+        for(const r of p.rates){
+          requireValue(r && ['Gold','Silver','Platinum'].includes(r.metal) && typeof r.purity==='string' && r.purity.trim().length>0 && r.purity.length<=20, "Enter a metal and purity for every rate.");
+          const key=r.metal+':'+r.purity.trim().toUpperCase();requireValue(!keys.has(key), "Each metal and purity needs one rate only.");keys.add(key);
+          requireValue(r.ratePerGram==='' || (decimal(r.ratePerGram) && Number(r.ratePerGram)>0 && typeof r.date==='string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && !Number.isNaN(Date.parse(r.date))), "Enter a positive rate and its date.");
+        }
+        requireValue(p.pricing && ['fixed','perGram','percent'].includes(p.pricing.makingMode) && ['makingRate','wastagePercent','otherCharges'].every(k=>decimal(p.pricing[k])) && Number(p.pricing.wastagePercent)<=100 && (p.pricing.makingMode!=='percent'||Number(p.pricing.makingRate)<=100), "Enter valid making charges, wastage and other charges.");
+      }
       if (resource === "paymentConfig") requireValue(typeof input.data.upiId === "string" && typeof input.data.merchantName === "string" && (!input.data.upiId || /^[\w.\-]{2,256}@[\w]{2,64}$/.test(input.data.upiId)), "Invalid payment configuration.");
       if (resource === "themeConfig") requireValue(['shop','dashboard'].every(area => ['classic','sunrise','ocean'].includes(input.data[area])) && Object.keys(input.data).every(key => ['shop','dashboard','dashboardFont'].includes(key)) && (input.data.dashboardFont === undefined || ['manrope','inter','jakarta','dm','plex'].includes(input.data.dashboardFont)), "Choose a valid shop and dashboard theme preset.");
       if (resource === "features") requireValue(Object.values(input.data).every(value => typeof value === "boolean"), "Feature settings must be boolean.");
