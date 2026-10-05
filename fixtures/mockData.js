@@ -1,3 +1,4 @@
+import { products as refreshedProducts } from "./productCatalog.js";
 const baseProducts = [
   {
     id: "JWL-1001",
@@ -212,7 +213,7 @@ const additionalProducts = additionalProductSpecs.map(([category, name, type, pu
   };
 });
 
-export const products = [...baseProducts, ...additionalProducts];
+export const products = refreshedProducts;
 
 export const initialCustomers = [
   { id: "CUS-001", name: "Rahul Kumar", phone: "9876543210", city: "Hyderabad", purchases: 7, spend: 384500 },
@@ -250,3 +251,4 @@ export const goldRates = {
 };
 
 export const categories = ["All", "Necklaces", "Rings", "Earrings", "Bracelets", "Chains", "Pendants", "Bangles"];
+
