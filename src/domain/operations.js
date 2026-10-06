@@ -71,7 +71,7 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
     requireValue(isObject(action === "create" ? input.record : input.changes), "Record data is required.");
     const record = action === "create" ? { ...input.record, id: input.record.id || makeId(resource.toUpperCase()) } : { ...await get(resource, input.id), ...input.changes, id: input.id };
     validateRecord(resource, record);
-    requireValue(!records.some(item => item.id !== record.id && resource === "products" && record.sku && item.sku === record.sku), "SKU is already in use.", "DUPLICATE");
+    requireValue(!records.some(item => item.id !== record.id && resource === "products" && record.sku && String(item.sku || "").trim().toLowerCase() === String(record.sku).trim().toLowerCase()), "SKU is already in use.", "DUPLICATE");
     requireValue(!records.some(item => item.id !== record.id && resource === "customers" && item.phone === record.phone), "Mobile number is already in use.", "DUPLICATE");
     if (action === "create") {
       requireValue(!records.some(item => item.id === record.id), "This ID is already in use.", "DUPLICATE");
