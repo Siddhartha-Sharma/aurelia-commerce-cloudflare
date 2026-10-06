@@ -32,11 +32,26 @@ function list(records, query = {}) {
   let result = records;
   if (query.query) {
     const term = String(query.query).trim().toLowerCase();
-    result = result.filter(record => ["id", "name", "customer", "phone", "sku", "category", "type", "purity", "city"].some(key => String(record[key] || "").toLowerCase().includes(term)));
+    result = result.filter(record => ["id", "name", "customer", "phone", "sku", "category", "type", "purity", "city", "email", "displayId", "orderNumber"].some(key => String(record[key] || "").toLowerCase().includes(term)));
   }
   for (const field of ["status", "channel", "paymentStatus", "productId", "customerId", "orderId", "category", "type", "purity"]) {
     if (query[field] != null && query[field] !== "ALL") result = result.filter(record => record[field] === query[field]);
   }
+  if (query.sku) result=result.filter(record=>String(record.sku || '').trim().toLowerCase()===String(query.sku).trim().toLowerCase());
+  if (query.stock && query.stock !== 'ALL') result = result.filter(record => {
+    const stock = Number(record.stock || 0);
+    return query.stock === 'IN_STOCK' ? stock > 0 : query.stock === 'LOW_STOCK' ? stock > 0 && stock <= 2 : query.stock === 'OUT_OF_STOCK' ? stock <= 0 : false;
+  });
+  if (query.addedFrom || query.addedTo) result = result.filter(record => {
+    const day = String(record.addedAt || '').slice(0,10);
+    return Boolean(day) && (!query.addedFrom || day >= query.addedFrom) && (!query.addedTo || day <= query.addedTo);
+  });
+  if (query.sort) result = [...result].sort((a,b) => {
+    if (query.sort === 'name') return String(a.name || '').localeCompare(String(b.name || '')) || a.id.localeCompare(b.id);
+    if (query.sort === 'priceLow') return Number(a.price || 0)-Number(b.price || 0) || a.id.localeCompare(b.id);
+    if (query.sort === 'stockLow') return Number(a.stock || 0)-Number(b.stock || 0) || a.id.localeCompare(b.id);
+    return (Date.parse(b.updatedAt || b.addedAt) || 0)-(Date.parse(a.updatedAt || a.addedAt) || 0) || a.id.localeCompare(b.id);
+  });
   const page = Number(query.page ?? 1), pageSize = Number(query.pageSize ?? 50);
   requireValue(Number.isInteger(page) && page > 0 && Number.isInteger(pageSize) && pageSize > 0 && pageSize <= 200, "Invalid pagination; pageSize must be 1–200.");
   return { items: clone(result.slice((page - 1) * pageSize, page * pageSize)), total: result.length, page, pageSize };
@@ -61,16 +76,30 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
   if (COLLECTIONS.includes(resource) && ["list", "get"].includes(action)) {
     return action === "list" ? list(await tx.read(resource), input) : clone(await get(resource, input.id));
   }
+  if (resource === 'customers' && ['archive','restore'].includes(action)) {
+    await get('customers', input.id);
+    return clone(await update('customers', input.id, {archivedAt:action === 'archive' ? now().toISOString() : null}));
+  }
   if (["products", "customers", "addresses", "sharedProducts"].includes(resource) && ["create", "update", "remove"].includes(action)) {
     const records = await tx.read(resource);
     if (action === "remove") {
-      await get(resource, input.id);
+      const removed = await get(resource, input.id);
+      if(resource === 'customers') {
+        requireValue(input.permanent === true, 'Confirm permanent customer deletion.');
+        const orders = await tx.read('orders');
+        await tx.write('orders',orders.map(order=>!order.customerId && order.phone === removed.phone ? {...order,customerId:removed.id} : order));
+      }
       await tx.write(resource, records.filter(item => item.id !== input.id));
       return { id: input.id, removed: true };
     }
     requireValue(isObject(action === "create" ? input.record : input.changes), "Record data is required.");
     const record = action === "create" ? { ...input.record, id: input.record.id || makeId(resource.toUpperCase()) } : { ...await get(resource, input.id), ...input.changes, id: input.id };
     validateRecord(resource, record);
+    if(resource === 'customers' && action === 'update') {
+      const previous=records.find(item=>item.id===input.id);
+      const orders=await tx.read('orders');
+      await tx.write('orders',orders.map(order=>!order.customerId && order.phone === previous.phone ? {...order,customerId:previous.id} : order));
+    }
     requireValue(!records.some(item => item.id !== record.id && resource === "products" && record.sku && String(item.sku || "").trim().toLowerCase() === String(record.sku).trim().toLowerCase()), "SKU is already in use.", "DUPLICATE");
     requireValue(!records.some(item => item.id !== record.id && resource === "customers" && item.phone === record.phone), "Mobile number is already in use.", "DUPLICATE");
     if (action === "create") {
@@ -183,8 +212,9 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
     await tx.write("payments", [...await tx.read("payments"), { id: makeId("PAY"), orderId: order.id, method: input.paymentMethod, amountReceived: money(received), status: order.paymentStatus, createdAt: timestamp }]);
     if (order.phone) {
       const customers = await tx.read("customers"), match = customers.find(item => item.phone === order.phone);
-      if (match) await update("customers", match.id, { purchases: Number(match.purchases || 0) + 1, spend: money(Number(match.spend || 0) + total) });
-      else if (/^[6-9]\d{9}$/.test(order.phone)) await tx.write("customers", [...customers, { id: makeId("CUS"), ...customer, name: order.customer, phone: order.phone, purchases: 1, spend: total }]);
+      if (match) { order.customerId=match.id; await update("customers", match.id, { purchases: Number(match.purchases || 0) + 1, spend: money(Number(match.spend || 0) + total) }); }
+      else if (/^[6-9]\d{9}$/.test(order.phone)) { order.customerId=makeId("CUS"); await tx.write("customers", [...customers, { id:order.customerId, ...customer, name: order.customer, phone: order.phone, purchases:1, spend:total }]); }
+      if(order.customerId) await tx.write("orders",[order,...(await tx.read("orders")).filter(item=>item.id!==order.id)]);
     }
     // Cart belongs to the caller's session; the live adapter must keep sessions isolated.
     if (input.channel === "ONLINE") await tx.write("cart", []);
@@ -246,6 +276,52 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
     return products.map(product => ({ product: clone(product), views: Number(counts[product.id]?.count || 0) })).filter(item => item.views > 0).sort((a, b) => b.views - a.views || a.product.id.localeCompare(b.product.id)).slice(0, input.limit);
   }
   if (operation === "analytics.counts") return clone(await tx.read("productViews"));
+  if (operation === 'dashboard.summary') {
+    const orders = (await tx.read('orders')).filter(order => !order.presentationFallback);
+    const products = await tx.read('products'), views = await tx.read('productViews');
+    const indiaDay = value => {
+      const raw = String(value || '');
+      const legacy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+      if (legacy) return legacy[3]+'-'+legacy[2].padStart(2,'0')+'-'+legacy[1].padStart(2,'0');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+      const time = Date.parse(raw); return Number.isFinite(time) ? new Date(time+19800000).toISOString().slice(0,10) : '';
+    };
+    const today = indiaDay(now().toISOString());
+    const dayOffset = offset => new Date(Date.parse(today+'T12:00:00Z')+offset*86400000).toISOString().slice(0,10);
+    const days = Array.from({length:7},(_,index)=>dayOffset(index-6)), yesterday = dayOffset(-1);
+    const salesByDay = {}, ordersByDay = {};
+    const eligible = orders.filter(order=>!['CANCELLED','CANCELED'].includes(String(order.status || '').toUpperCase()));
+    for (const order of orders) { const day=indiaDay(order.createdAt); ordersByDay[day]=(ordersByDay[day] || 0)+1; }
+    for (const order of eligible) { const day=indiaDay(order.createdAt); salesByDay[day]=money((salesByDay[day] || 0)+Number(order.total || 0)); }
+    const pending = eligible.filter(order=>(order.channel || 'ONLINE') !== 'POS' && !['DELIVERED','COMPLETED'].includes(String(order.status || 'CONFIRMED').toUpperCase()));
+    const low = products.filter(product=>Number(product.stock)>0 && Number(product.stock)<=2);
+    const recentOrder = order => ({id:order.id,displayId:order.displayId,orderNumber:order.orderNumber,customer:order.customer,channel:order.channel,total:order.total,status:order.status,createdAt:order.createdAt,itemCount:order.itemCount ?? (order.items || []).reduce((sum,item)=>sum+Number(item.qty || 0),0)});
+    const orderTime=value=>/^\d{1,2}[/-]\d{1,2}[/-]\d{4}$/.test(String(value || '')) ? Date.parse(indiaDay(value)+'T00:00:00+05:30') : Date.parse(value);
+    const byRecent=(a,b)=>(orderTime(b.createdAt) || 0)-(orderTime(a.createdAt) || 0);
+    return {
+      generatedAt:now().toISOString(),today,sales:salesByDay[today] || 0,priorSales:salesByDay[yesterday] || 0,
+      createdToday:ordersByDay[today] || 0,createdYesterday:ordersByDay[yesterday] || 0,
+      pendingCount:pending.length,lowStockCount:low.length,onePieceCount:low.filter(product=>Number(product.stock)===1).length,
+      outOfStockCount:products.filter(product=>Number(product.stock)<=0).length,
+      pendingPaymentCount:eligible.filter(order=>Number(order.balanceDue || 0)>0 || ['PENDING','PARTIAL'].includes(String(order.paymentStatus || order.payment || '').toUpperCase())).length,
+      dailySales:days.map(day=>salesByDay[day] || 0),dailyOrders:days.map(day=>ordersByDay[day] || 0),
+      recent:orders.slice().sort(byRecent).slice(0,5).map(recentOrder),
+      pos:eligible.filter(order=>order.channel==='POS' && indiaDay(order.createdAt)===today).sort(byRecent).slice(0,5).map(order=>({...recentOrder(order),lineCount:order.lineCount ?? order.items?.length ?? 0,firstItem:order.firstItem || {name:order.items?.[0]?.name,image:order.items?.[0]?.image}})),
+      totalProductViews:Object.values(views).reduce((sum,value)=>sum+Number(value?.count || 0),0),
+      popularProducts:products.map(product=>({id:product.id,name:product.name,sku:product.sku,category:product.category,image:product.image,viewCount:Number(views[product.id]?.count || 0)})).filter(product=>product.viewCount>0).sort((a,b)=>b.viewCount-a.viewCount || String(a.name).localeCompare(String(b.name))).slice(0,5),
+    };
+  }
+  if (operation === 'search.suggestions') {
+    requireValue(typeof input.query === 'string' && input.query.length<=200, 'Use up to 200 characters for search.');
+    const terms=input.query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const limit=Number(input.limit ?? 20); requireValue(Number.isInteger(limit) && limit>0 && limit<=50,'Invalid search limit.');
+    if (!terms.length) return {products:[],orders:[],customers:[]};
+    const matches = (record,fields) => {const text=fields.map(field=>String(record[field] || '')).join(' ').toLowerCase();return terms.every(term=>text.includes(term));};
+    const products=(await tx.read('products')).filter(record=>matches(record,['id','name','sku','category','type','purity'])).slice(0,limit).map(({id,name,sku,category,type,purity})=>({id,name,sku,category,type,purity}));
+    const customers=(await tx.read('customers')).filter(record=>!record.archivedAt && matches(record,['name','phone','email','city'])).slice(0,limit).map(({id,name,phone,email,city})=>({id,name,phone,email,city}));
+    const orders=(await tx.read('orders')).filter(record=>matches({...record,reference: String(record.orderNumber || record.displayId || record.id || '').length<=28 ? String(record.orderNumber || record.displayId || record.id || '') : 'ORD-'+String(record.orderNumber || record.displayId || record.id || '').replace(/^ORD-/i,'').replace(/[^a-z0-9]/gi,'').slice(0,12),itemNames:(record.items || []).map(item=>item.name).join(' ')},['id','displayId','orderNumber','customer','phone','status','itemNames','reference'])).slice(0,limit).map(({id,displayId,orderNumber,customer,phone,status})=>({id,displayId,orderNumber,customer,phone,status}));
+    return {products,customers,orders};
+  }
   if (operation === "reports.summary") {
     const orders = await tx.read("orders");
     const activeOrders = orders.filter(order => order.status !== "CANCELLED");
