@@ -1,3 +1,4 @@
+import {paymentMethodError, getPaymentMethod, validatePaymentSettings, normalizePaymentConfig} from './paymentMethods.js';
 import { createRequestId } from "./requestId.js";
 import { ServiceError, requireValue } from "./serviceError.js";
 
@@ -30,9 +31,23 @@ function validateRecord(resource, record) {
 
 function list(records, query = {}) {
   let result = records;
+  const storefront=query.view==='storefront';
+  const purities=storefront?[...new Set(records.map(record=>record.purity).filter(Boolean))].sort():undefined;
+  if (storefront) {
+    if (query.featuredOnly===true) result=result.filter(record=>Boolean(record.featured));
+    const ranges={under50:[0,50000],'50to100':[50000,100000],'100to200':[100000,200000],over200:[200000,Infinity]};
+    if (query.budget && query.budget!=='All') {
+      requireValue(Boolean(ranges[query.budget]),'Invalid budget filter.');
+      const [min,max]=ranges[query.budget];
+      result=result.filter(record=>Number(record.price)>=min && Number(record.price)<max);
+    }
+  }
   if (query.query) {
     const term = String(query.query).trim().toLowerCase();
-    result = result.filter(record => ["id", "name", "customer", "phone", "sku", "category", "type", "purity", "city", "email", "displayId", "orderNumber"].some(key => String(record[key] || "").toLowerCase().includes(term)));
+    result = storefront ? result.filter(record=>{
+      const editKeywords=/bridal|temple|mangalsutra/i.test(record.name)?' wedding bridal ':'';
+      return [record.name,record.sku,record.category,record.type,record.purity,editKeywords].join(' ').toLowerCase().includes(term);
+    }) : result.filter(record => ["id", "name", "customer", "phone", "sku", "category", "type", "purity", "city", "email", "displayId", "orderNumber"].some(key => String(record[key] || "").toLowerCase().includes(term)));
   }
   for (const field of ["status", "channel", "paymentStatus", "productId", "customerId", "orderId", "category", "type", "purity"]) {
     if (query[field] != null && query[field] !== "ALL") result = result.filter(record => record[field] === query[field]);
@@ -48,19 +63,26 @@ function list(records, query = {}) {
   });
   if (query.sort) result = [...result].sort((a,b) => {
     if (query.sort === 'name') return String(a.name || '').localeCompare(String(b.name || '')) || a.id.localeCompare(b.id);
+    if (query.sort === 'recommended') return Number(Boolean(b.featured))-Number(Boolean(a.featured)) || a.id.localeCompare(b.id);
+    if (query.sort === 'priceHigh') return Number(b.price || 0)-Number(a.price || 0) || a.id.localeCompare(b.id);
     if (query.sort === 'priceLow') return Number(a.price || 0)-Number(b.price || 0) || a.id.localeCompare(b.id);
     if (query.sort === 'stockLow') return Number(a.stock || 0)-Number(b.stock || 0) || a.id.localeCompare(b.id);
     return (Date.parse(b.updatedAt || b.addedAt) || 0)-(Date.parse(a.updatedAt || a.addedAt) || 0) || a.id.localeCompare(b.id);
   });
   const page = Number(query.page ?? 1), pageSize = Number(query.pageSize ?? 50);
   requireValue(Number.isInteger(page) && page > 0 && Number.isInteger(pageSize) && pageSize > 0 && pageSize <= 200, "Invalid pagination; pageSize must be 1–200.");
-  return { items: clone(result.slice((page - 1) * pageSize, page * pageSize)), total: result.length, page, pageSize };
+  return { items: clone(result.slice((page - 1) * pageSize, page * pageSize)), total: result.length, page, pageSize, ...(storefront?{purities}:{}) };
 }
 
 /** Pure domain dispatcher: adapters supply a transaction with read/write methods. */
 export async function executeServiceOperation(tx, operation, input = {}, { now = () => new Date(), makeId = newId, sessionId } = {}) {
   requireValue(typeof operation === "string" && operation.split(".").length === 2 && isObject(input), "Invalid service request.");
   const [resource, action] = operation.split(".");
+  if(operation === "shopProfile.saveWithPayment") {
+    const profile=await executeServiceOperation(tx,"shopProfile.save",{data:input.profile},{now,makeId,sessionId});
+    const paymentConfig=await executeServiceOperation(tx,"paymentConfig.save",{data:input.paymentConfig},{now,makeId,sessionId});
+    return {profile,paymentConfig};
+  }
   const get = async (resourceName, id) => {
     requireValue(validId(id), "A valid record ID is required.");
     return (await tx.read(resourceName)).find(record => record.id === id) || failMissing(id);
@@ -133,7 +155,7 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
         }
         requireValue(p.pricing && ['fixed','perGram','percent'].includes(p.pricing.makingMode) && ['makingRate','wastagePercent','otherCharges'].every(k=>decimal(p.pricing[k])) && Number(p.pricing.wastagePercent)<=100 && (p.pricing.makingMode!=='percent'||Number(p.pricing.makingRate)<=100), "Enter valid making charges, wastage and other charges.");
       }
-      if (resource === "paymentConfig") requireValue(typeof input.data.upiId === "string" && typeof input.data.merchantName === "string" && (!input.data.upiId || /^[\w.\-]{2,256}@[\w]{2,64}$/.test(input.data.upiId)), "Invalid payment configuration.");
+      if (resource === "paymentConfig") {const error=validatePaymentSettings(input.data);requireValue(!error,error);input.data=normalizePaymentConfig(input.data);}
       if (resource === "themeConfig") requireValue(['shop','dashboard'].every(area => ['classic','sunrise','ocean','golden',...(area === 'dashboard' ? ['darkGold','darkSilver','lightSilver'] : [])].includes(input.data[area])) && Object.keys(input.data).every(key => ['shop','dashboard','dashboardFont'].includes(key)) && (input.data.dashboardFont === undefined || ['manrope','inter','jakarta','dm','plex'].includes(input.data.dashboardFont)), "Choose a valid shop and dashboard theme preset.");
       if (resource === "features") requireValue(Object.values(input.data).every(value => typeof value === "boolean"), "Feature settings must be boolean.");
       await tx.write(resource, input.data);
@@ -161,9 +183,12 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
       return clone(existing);
     }
     requireValue(["POS", "ONLINE"].includes(input.channel), "Choose POS or ONLINE.");
+    const paymentSettings=normalizePaymentConfig(await tx.read("paymentConfig"));
+    const paymentError=paymentMethodError(input.paymentMethod,input.channel,paymentSettings);
+    requireValue(!paymentError,paymentError);
     if (input.channel === "ONLINE") {
       requireValue((await tx.read("features")).showProductPrices !== false, "Checkout is paused while prices are being finalized.");
-      if (input.paymentMethod === "UPI_DIRECT") requireValue(Boolean((await tx.read("paymentConfig")).upiId), "The shop has not configured its UPI ID.");
+      if (getPaymentMethod(input.paymentMethod).requiresUpi) requireValue(Boolean((await tx.read("paymentConfig")).upiId), "The shop has not configured its UPI ID.");
     }
     requireValue(Array.isArray(input.items) && input.items.length > 0 && input.items.length <= 100, "An order needs 1–100 items.");
     const products = await tx.read("products"), quantities = new Map();
@@ -192,8 +217,7 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
       requireValue(typeof customer.name === "string" && customer.name.trim(), "Customer name is required.");
       requireValue(typeof customer.phone === "string" && /^[6-9]\d{9}$/.test(customer.phone), "A valid mobile number is required.");
       requireValue(typeof customer.address === "string" && customer.address.trim().length >= 5 && typeof customer.city === "string" && customer.city.trim().length >= 2 && typeof customer.state === "string" && customer.state.trim().length >= 2 && /^[1-9]\d{5}$/.test(customer.pincode || ""), "A complete delivery address is required.");
-      requireValue(["COD", "UPI_DIRECT"].includes(input.paymentMethod), "Use COD or direct UPI until server gateway verification is connected.");
-    } else requireValue(["CASH", "UPI", "CARD"].includes(input.paymentMethod), "Invalid in-store payment method.");
+    }
     const timestamp = now().toISOString();
     const order = {
       id: makeId(input.channel === "POS" ? "POS" : "ORD"), requestId: input.requestId, requestPayload: JSON.stringify(input),
@@ -202,6 +226,8 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
       address: customer.address || "", city: customer.city || "", state: customer.state || "", pincode: customer.pincode || "", landmark: customer.landmark || "",
       channel: input.channel, status: input.channel === "POS" ? "COMPLETED" : "CONFIRMED",
       payment: input.paymentMethod, paymentMethod: input.paymentMethod,
+      ...(input.channel === "ONLINE" && input.paymentMethod === "UPI_DIRECT" ? {paymentDetails:{upiId:paymentSettings.upiId,merchantName:paymentSettings.merchantName}} : {}),
+      ...(input.channel === "ONLINE" && input.paymentMethod === "BANK_TRANSFER" ? {paymentDetails:{bank:paymentSettings.bank}} : {}),
       subtotal, discount: money(discount), total, amountReceived: money(received),
       paymentStatus: received >= total ? "PAID" : received > 0 ? "PARTIAL" : "PENDING",
       balanceDue: money(Math.max(0, total - received)), changeDue: money(Math.max(0, received - total)), createdAt: timestamp, items,
