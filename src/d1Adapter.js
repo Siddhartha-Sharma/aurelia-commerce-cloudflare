@@ -12,6 +12,7 @@ const defaults = {
 };
 
 export function operationResources(operation) {
+  if(operation === "shopProfile.saveWithPayment") return ["shopProfile","paymentConfig"];
   if (operation === "orders.status") return ["orders", "products", "inventoryMovements"];
   if (operation === "payments.reference") return ["orders"];
   if (operation === "payments.confirm") return ["orders", "payments"];
@@ -98,23 +99,42 @@ async function listProductPage(db, query = {}) {
   const page=Number(query.page ?? 1),pageSize=Number(query.pageSize ?? 50);
   if (!Number.isInteger(page) || page<1 || !Number.isInteger(pageSize) || pageSize<1 || pageSize>200) throw new ServiceError('Invalid pagination; pageSize must be 1–200.',{code:'INVALID_INPUT',status:400});
   const clauses=["resource = ?","scope = ?"], params=['products','shop'];
+  const storefront=query.view==='storefront';
   const term=String(query.query || '').trim().toLowerCase();
   if (term) {
     const fields=['id','name','customer','phone','sku','category','type','purity','city','email','displayId','orderNumber'];
+    if (storefront) {
+      const text="lower(coalesce(json_extract(data,'$.name'),'') || ' ' || coalesce(json_extract(data,'$.sku'),'') || ' ' || coalesce(json_extract(data,'$.category'),'') || ' ' || coalesce(json_extract(data,'$.type'),'') || ' ' || coalesce(json_extract(data,'$.purity'),'') || CASE WHEN lower(json_extract(data,'$.name')) LIKE '%bridal%' OR lower(json_extract(data,'$.name')) LIKE '%temple%' OR lower(json_extract(data,'$.name')) LIKE '%mangalsutra%' THEN ' wedding bridal ' ELSE '' END)";
+      clauses.push('instr('+text+',?)>0');params.push(term);
+    } else {
     clauses.push('('+fields.map(field=>"instr(lower(coalesce(json_extract(data,'$."+field+"'),'')),?)>0").join(' OR ')+')');
     params.push(...fields.map(()=>term));
+    }
   }
   for (const field of ['status','channel','paymentStatus','productId','customerId','orderId','category','type','purity']) if(query[field]!=null && query[field]!=='ALL') {clauses.push("json_extract(data, '$."+field+"') = ?");params.push(query[field]);}
   if (query.sku) {clauses.push("lower(trim(json_extract(data,'$.sku'))) = ?");params.push(String(query.sku).trim().toLowerCase());}
+  if (storefront) {
+    if (query.featuredOnly===true) clauses.push("coalesce(json_extract(data,'$.featured'),0) != 0");
+    const ranges={under50:[0,50000],'50to100':[50000,100000],'100to200':[100000,200000],over200:[200000,null]};
+    if (query.budget && query.budget!=='All') {
+      const range=ranges[query.budget];
+      if(!range)throw new ServiceError('Invalid budget filter.',{code:'INVALID_INPUT',status:400});
+      clauses.push("cast(json_extract(data,'$.price') as real) >= ?");params.push(range[0]);
+      if(range[1]!=null){clauses.push("cast(json_extract(data,'$.price') as real) < ?");params.push(range[1]);}
+    }
+  }
   const stock="coalesce(cast(json_extract(data,'$.stock') as real),0)";
   if (query.stock && query.stock!=='ALL') {const condition={IN_STOCK:stock+'>0',LOW_STOCK:stock+'>0 AND '+stock+'<=2',OUT_OF_STOCK:stock+'<=0'}[query.stock];if (!condition) throw new ServiceError('Invalid stock filter.',{code:'INVALID_INPUT',status:400});clauses.push('('+condition+')');}
   if (query.addedFrom) {clauses.push("substr(json_extract(data,'$.addedAt'),1,10) >= ?");params.push(query.addedFrom);}
   if (query.addedTo) {clauses.push("substr(json_extract(data,'$.addedAt'),1,10) <= ?");params.push(query.addedTo);}
-  const sorting={updated:"coalesce(julianday(json_extract(data,'$.updatedAt')),julianday(json_extract(data,'$.addedAt')),0) DESC, id",name:"json_extract(data,'$.name') COLLATE NOCASE, id",priceLow:"cast(json_extract(data,'$.price') as real), id",stockLow:stock+', id'};
+  const sorting={recommended:"coalesce(json_extract(data,'$.featured'),0) DESC, id",priceHigh:"cast(json_extract(data,'$.price') as real) DESC, id",updated:"coalesce(julianday(json_extract(data,'$.updatedAt')),julianday(json_extract(data,'$.addedAt')),0) DESC, id",name:"json_extract(data,'$.name') COLLATE NOCASE, id",priceLow:"cast(json_extract(data,'$.price') as real), id",stockLow:stock+', id'};
   const order=query.sort ? sorting[query.sort] || sorting.updated : 'rowid';
   const where=clauses.join(' AND '),database=db.withSession('first-primary');
-  const [count,rows]=await database.batch([database.prepare('SELECT count(*) AS total FROM records WHERE '+where).bind(...params),database.prepare('SELECT data FROM records WHERE '+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').bind(...params,pageSize,(page-1)*pageSize)]);
-  return {items:rows.results.map(row=>JSON.parse(row.data)),total:Number(count.results[0].total),page,pageSize};
+  const reads=[database.prepare('SELECT count(*) AS total FROM records WHERE '+where).bind(...params),database.prepare('SELECT data FROM records WHERE '+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').bind(...params,pageSize,(page-1)*pageSize)];
+  if(storefront)reads.push(database.prepare("SELECT DISTINCT json_extract(data,'$.purity') AS purity FROM records WHERE resource='products' AND scope='shop' AND json_extract(data,'$.purity') IS NOT NULL AND json_extract(data,'$.purity') != '' ORDER BY purity"));
+  const [count,rows,facets]=await database.batch(reads);
+  const purities=facets?.results.map(row=>row.purity);
+  return {items:rows.results.map(row=>JSON.parse(row.data)),total:Number(count.results[0].total),page,pageSize,...(storefront?{purities}:{})};
 }
 
 // Read-only overview/search operations leave photo galleries and pricing snapshots in D1.
