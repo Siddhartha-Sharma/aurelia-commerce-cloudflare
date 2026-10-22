@@ -34,7 +34,8 @@ export function operationResources(operation) {
   throw new ServiceError("Unknown service operation.", { code: "NOT_IMPLEMENTED", status: 404 });
 }
 
-export function createD1Adapter(db, { sessionId, audience }) {
+/** @param {any} db @param {{sessionId:string,audience:string,actor?:any}} options */
+export function createD1Adapter(db, { sessionId, audience, actor = null }) {
   return {
     async execute(operation, input) {
       if (operation === 'products.list') return listProductPage(db,input);
@@ -68,7 +69,7 @@ export function createD1Adapter(db, { sessionId, audience }) {
             values.set(resource, structuredClone(value)); dirty.add(resource);
           },
         };
-        const result = await executeServiceOperation(tx, operation, input, { sessionId, audience });
+        const result = await executeServiceOperation(tx, operation, input, { sessionId, audience, actor });
         if (!dirty.size) {
           if (operation === 'dashboard.summary') await attachDashboardImages(database,result);
           return result;
@@ -81,6 +82,9 @@ export function createD1Adapter(db, { sessionId, audience }) {
             if (original.get(resource).get(id) !== body) writes.push(database.prepare("INSERT INTO records(resource, scope, id, data) VALUES(?, ?, ?, ?) ON CONFLICT(resource, scope, id) DO UPDATE SET data = excluded.data").bind(resource, scope, id, body));
           }
           for (const id of original.get(resource).keys()) if (!next.has(id)) writes.push(database.prepare("DELETE FROM records WHERE resource = ? AND scope = ? AND id = ?").bind(resource, scope, id));
+        }
+        if(actor?.user && !["cart","wishlist","profile","addresses","sharedProducts","productViews","stockAlerts"].includes(operation.split(".")[0])) {
+          writes.push(database.prepare("INSERT INTO app_audit(id,shopId,actorId,action,targetId,detail,createdAt) VALUES(?,?,?,?,?,?,?)").bind(crypto.randomUUID(),actor.shopId,actor.user.id,operation,String(input.id || input.orderId || result?.id || ""),"",Date.now()));
         }
         writes.push(database.prepare("UPDATE data_version SET version = version + 1 WHERE id = 1"));
         try { await database.batch(writes); return result; }

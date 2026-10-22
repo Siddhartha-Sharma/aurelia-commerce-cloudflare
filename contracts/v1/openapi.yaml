@@ -1,0 +1,155 @@
+openapi: 3.1.0
+info:
+  title: Aurelia API v1
+  version: 1.0.0
+  description: >-
+    Browser-facing compatibility contract. Authentication implementation and
+    deployment provider do not determine API version. Service operations remain
+    subject to the server permission registry in src/auth/policy.js.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      security: []
+      responses:
+        '200':
+          description: Database reachable; mode is authenticated, demo or locked.
+  /auth/context:
+    get:
+      security: []
+      responses:
+        '200':
+          description: Safe session context. Anonymous requests return user null.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AuthContext'
+        '503':
+          $ref: '#/components/responses/Error'
+  /services:
+    post:
+      description: >-
+        Existing operation envelope. Public catalogue/bag operations permit guests;
+        protected operations require verified identity and server-granted permissions.
+        The operation name selects its request/response DTO. Unknown operations are denied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation, input]
+              additionalProperties: false
+              properties:
+                operation:
+                  type: string
+                  pattern: '^[a-zA-Z]+\.[a-zA-Z]+$'
+                input:
+                  type: object
+      responses:
+        '200':
+          description: Operation result enclosed in data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {}
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /team:
+    get:
+      description: Owner-only staff and invitation list.
+      responses:
+        '200':
+          description: data includes members, invitations, availablePermissions and defaultPermissions.
+        '403':
+          $ref: '#/components/responses/Error'
+  /pos-draft:
+    get:
+      description: Current verified POS user's draft; never another staff member's draft.
+      responses:
+        '200':
+          description: data is a saved draft or null.
+    post:
+      description: Save a private draft for seven days without reserving stock.
+      responses:
+        '200':
+          description: data.saved is true.
+security:
+  - sessionCookie: []
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: aurelia-auth.session_token
+      description: Secure deployment uses the provider's __Secure- cookie prefix. Never send the token in JSON or localStorage.
+  responses:
+    Error:
+      description: Stable error envelope; no provider credentials or database internals.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+    AuthContext:
+      type: object
+      required: [enabled, configured, user, session, permissions]
+      properties:
+        enabled: {type: boolean}
+        configured: {type: boolean}
+        user:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, name, email, emailVerified, twoFactorEnabled]
+              properties:
+                id: {type: string}
+                name: {type: string}
+                email: {type: string, format: email}
+                emailVerified: {type: boolean}
+                twoFactorEnabled: {type: boolean}
+        session:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                id: {type: string}
+                expiresAt: {type: string, format: date-time}
+        role:
+          type: string
+          enum: [GUEST, CUSTOMER, STAFF, OWNER, DEVELOPER]
+        permissions:
+          type: array
+          items: {type: string}
+        shopId: {type: string}
+        needsMfaEnrollment: {type: boolean}
+        needsMfaVerification: {type: boolean}
+        mfaVerifiedAt:
+          type: [integer, 'null']
+          description: Unix milliseconds; not a client-trusted authorization assertion.

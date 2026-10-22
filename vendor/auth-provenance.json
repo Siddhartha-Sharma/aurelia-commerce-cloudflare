@@ -1,0 +1,14 @@
+{
+  "sourceRepository": "https://github.com/Siddhartha-Sharma/snort-auth-js",
+  "sourceCommit": "be425f066fcf93cdaa086bfa3901616f94c53e64",
+  "firstImplementor": "aurelia-commerce-ui",
+  "artifacts": [
+    {
+      "package": "@snort-intelligence/auth-server",
+      "version": "0.1.4",
+      "file": "snort-intelligence-auth-server-0.1.4.tgz",
+      "sha256": "ceba4312ff1bad2a4be43bd85ac6bb311dc2e6613844daf016a7b5b54524502f",
+      "integrity": "sha512-o+HQnWIXghQp7tiA1vrp2hst8KCc9Lr/+iGd+C1w2BFqbF4QKg2hLyr9lk0hWzpXaMve0xlFo5rilCR7zP34tA=="
+    }
+  ]
+}

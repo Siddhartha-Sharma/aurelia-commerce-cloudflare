@@ -4,12 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --config wrangler.jsonc --var DEMO_MODE:true --port 8787",
+    "demo:status": "node scripts/demoReset.mjs status",
+    "demo:baseline": "node scripts/demoReset.mjs baseline",
+    "demo:reset": "node scripts/demoReset.mjs reset",
+    "dev": "node scripts/profile.mjs start",
+    "start": "node scripts/profile.mjs start",
+    "build": "node scripts/profile.mjs build",
+    "profile:help": "node scripts/profile.mjs start --help",
     "check": "tsc -p tsconfig.json",
     "test": "node --test tests/*.test.js",
-    "db:migrate:local": "wrangler d1 migrations apply aurelia-db --local --config wrangler.jsonc",
-    "db:seed:local": "node scripts/createSeed.mjs && wrangler d1 execute aurelia-db --local --config wrangler.jsonc --file seed.sql",
-    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "db:migrate": "node scripts/profile.mjs migrate",
+    "db:migrate:local": "node scripts/profile.mjs migrate --profile=dev",
+    "db:seed:local": "node scripts/profile.mjs seed --profile=dev",
+    "deploy": "node scripts/profile.mjs deploy",
     "test:integration": "node --test tests/http.integration.test.js",
     "deploy:test": "wrangler deploy --config wrangler.jsonc --env test",
     "db:migrate:test": "wrangler d1 migrations apply aurelia-test-db --remote --config wrangler.jsonc --env test"
@@ -18,5 +25,8 @@
     "@cloudflare/workers-types": "^5.20261001.1",
     "typescript": "^7.0.2",
     "wrangler": "^4.146.0"
+  },
+  "dependencies": {
+    "@snort-intelligence/auth-server": "file:vendor/snort-intelligence-auth-server-0.1.4.tgz"
   }
 }
