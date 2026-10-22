@@ -8,7 +8,7 @@
 
 The local folder is `aurelia-commerce-worker-api`; the GitHub repository remains `aurelia-commerce-cloudflare`.
 
-This repository installs `@snort-intelligence/auth-server` 0.1.4 from its committed vendor tarball. The UI installs client/React 0.1.2. No sibling-directory runtime import or npm publication is required. See `vendor/README.md` for artifact provenance.
+This repository installs `@snort-intelligence/auth-server` 0.1.4 from its committed vendor tarball. The UI installs client/React 0.1.2. No sibling-directory runtime import or npm publication is required. See [vendor/auth-provenance.json](../vendor/auth-provenance.json) for artifact provenance.
 
 The reusable adapter owns credentials/provider/session operations. `src/auth` here owns Aurelia roles, permissions, disabled access, invitations, support grants, current-session MFA assurance, replay checks and guest ownership. Its context projection remains host-owned so a new UI cannot bypass business policy.
 
