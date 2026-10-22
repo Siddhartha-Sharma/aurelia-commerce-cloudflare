@@ -1,0 +1,8 @@
+{
+  "purpose": "disposable-demo",
+  "accountId": "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID",
+  "databaseName": "aurelia-demo-db",
+  "databaseId": "REPLACE_WITH_NEW_DEMO_DB_UUID",
+  "workerConfig": "wrangler.demo.json",
+  "retainUserIds": ["REPLACE_WITH_SYNTHETIC_OWNER_ID", "REPLACE_WITH_SYNTHETIC_STAFF_ID", "REPLACE_WITH_SYNTHETIC_CUSTOMER_ID"]
+}

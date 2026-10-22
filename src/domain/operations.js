@@ -75,7 +75,7 @@ function list(records, query = {}) {
 }
 
 /** Pure domain dispatcher: adapters supply a transaction with read/write methods. */
-export async function executeServiceOperation(tx, operation, input = {}, { now = () => new Date(), makeId = newId, sessionId } = {}) {
+export async function executeServiceOperation(tx, operation, input = {}, { now = () => new Date(), makeId = newId, sessionId, actor } = {}) {
   requireValue(typeof operation === "string" && operation.split(".").length === 2 && isObject(input), "Invalid service request.");
   const [resource, action] = operation.split(".");
   if(operation === "shopProfile.saveWithPayment") {
@@ -116,6 +116,8 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
     }
     requireValue(isObject(action === "create" ? input.record : input.changes), "Record data is required.");
     const record = action === "create" ? { ...input.record, id: input.record.id || makeId(resource.toUpperCase()) } : { ...await get(resource, input.id), ...input.changes, id: input.id };
+    if(actor && resource==="products" && action==="update" && Number(record.stock)!==Number(records.find(item=>item.id===input.id)?.stock) && !actor.permissions.includes("inventory.adjust"))
+      throw new ServiceError("Ask the owner to allow stock adjustments.",{status:403,code:"FORBIDDEN"});
     validateRecord(resource, record);
     if(resource === 'customers' && action === 'update') {
       const previous=records.find(item=>item.id===input.id);
@@ -179,6 +181,7 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
     requireValue(validId(input.requestId), "A stable requestId is required for retry-safe ordering.");
     const existing = (await tx.read("orders")).find(order => order.requestId === input.requestId);
     if (existing) {
+      if(actor && existing.sessionId !== sessionId)throw new ServiceError("This request belongs to another sale.",{status:409,code:"CONFLICT"});
       requireValue(!existing.requestPayload || existing.requestPayload === JSON.stringify(input), "This request ID belongs to a different sale. Retry the original request.", "CONFLICT");
       return clone(existing);
     }
@@ -202,6 +205,8 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
       if (input.channel === "ONLINE") requireValue(!product.hidePrice, "This design's price is being finalized.");
       const submitted = input.items.find(item => item.productId === productId);
       const price = input.channel === "POS" && submitted.agreedPrice !== undefined ? Number(submitted.agreedPrice) : Number(product.price);
+      if (actor && input.channel === "POS" && price !== Number(product.price) && !actor.permissions.includes("pos.price.override"))
+        throw new ServiceError("Ask the owner to approve a price change.",{status:403,code:"FORBIDDEN"});
       requireValue(Number.isFinite(price) && price > 0, "Order prices must be positive.");
       return { productId, name: product.name, image: product.image || "", sku: product.sku || "", price: money(price), qty };
     });
@@ -222,6 +227,7 @@ export async function executeServiceOperation(tx, operation, input = {}, { now =
     const order = {
       id: makeId(input.channel === "POS" ? "POS" : "ORD"), requestId: input.requestId, requestPayload: JSON.stringify(input),
       ...(sessionId ? { sessionId } : {}),
+      ...(actor?.user ? {createdBy:actor.user.id,shopId:actor.shopId} : {}),
       customer: String(customer.name || "Walk-in Customer").trim(), phone: String(customer.phone || "").trim(),
       address: customer.address || "", city: customer.city || "", state: customer.state || "", pincode: customer.pincode || "", landmark: customer.landmark || "",
       channel: input.channel, status: input.channel === "POS" ? "COMPLETED" : "CONFIRMED",

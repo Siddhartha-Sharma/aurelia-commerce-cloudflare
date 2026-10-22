@@ -1,0 +1,11 @@
+# Copy to .dev.vars locally. Never commit real secrets.
+AUTH_ENABLED=false
+AUTH_BASE_URL=http://localhost:5173
+AUTH_SHOP_ID=aurelia
+AUTH_APP_NAME=Aurelia Jewellery
+# Generate a random secret with at least 32 bytes. No hard-coded runtime default.
+AUTH_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+AUTH_EMAIL_FROM=
+RESEND_API_KEY=

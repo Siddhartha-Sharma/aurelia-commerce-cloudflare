@@ -3,8 +3,10 @@
   "name": "aurelia-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "DEMO_MODE": "false",
+    "AUTH_ENABLED": "false",
     "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173"
   },
   "d1_databases": [{
@@ -18,6 +20,7 @@
       "name": "aurelia-api-test",
       "vars": {
         "DEMO_MODE": "true",
+        "AUTH_ENABLED": "false",
         "ALLOWED_ORIGINS": "https://aurelia-ui-test.pages.dev,https://aurelia-test.pages.dev"
       },
       "d1_databases": [{

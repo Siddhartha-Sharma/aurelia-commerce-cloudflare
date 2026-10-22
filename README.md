@@ -1,6 +1,7 @@
-# Aurelia Commerce Worker API
+# Aurelia Commerce Cloudflare API
 
-Independent Cloudflare Worker + D1 API. No React imports. Version 0.1.0: demo/development.
+Cloudflare Worker + D1 backend for products, orders, customers and payments.
+`src/auth/` integrates `snort-auth-js` with Aurelia permissions and MFA policy.
 
 ## Fresh local setup
 
@@ -8,33 +9,24 @@ Independent Cloudflare Worker + D1 API. No React imports. Version 0.1.0: demo/de
 npm ci
 npm run db:migrate:local
 npm run db:seed:local
-npm run dev
+npm run start -- --profile=dev
 ```
 
-Seed only a fresh demo database. Existing records use INSERT OR IGNORE. D1 local data stays in this project's .wrangler directory; it is not automatically copied from the backup repository.
+Seed only a fresh synthetic dev database. Local data stays in `.wrangler/profiles/dev`.
 
-## Review
+## Commands
 
-```bash
-npm test
-npm run check
-npx wrangler deploy --dry-run
-```
+| Command | Purpose |
+| --- | --- |
+| `npm run check` | TypeScript check |
+| `npm run build -- --profile=demo` | Dry-run bundle; does not deploy |
+| `npm run deploy -- --profile=demo` | Deploy configured demo Worker |
+| `npm run demo:reset` | Confirmed demo-only cleanup; preserves products |
 
-Domain tests do not replace D1 integration/device tests.
+Before hosted use: configure the correct DB, migrations, origins and secrets. Auth is mandatory for production; Google/email flows need provider credentials. Use disposable databases for tests.
 
-## Deploy
+## References
 
-Create a D1 database, replace database_id in wrangler.jsonc, set ALLOWED_ORIGINS to the Pages URL, apply remote migrations, seed reviewed synthetic data, then npm run deploy. DEMO_MODE defaults false; data endpoints are locked. Authentication is pending. Enable demo mode only for disposable synthetic demo data. Owner audience headers are not authentication.
-
-Shared domain files in src/domain are owned here for live data validation. UI's mock domain copy must remain contract compatible. No SQL, migration or Worker runtime belongs in the UI repo.
-
-## HTTP integration checks
-
-Start the local Worker against a disposable synthetic D1 database, then in Git Bash:
-
-```bash
-AURELIA_TEST_API_URL=http://127.0.0.1:8790/api npm run test:integration
-```
-
-Without the environment variable the integration suite is skipped. Checks cover database health, customer permission boundaries, missing session, malformed JSON, disallowed origin and unknown route. These demo checks do not substitute for production authentication.
+- [Profiles/deployment](docs/PROFILES.md) / [Auth rollout](docs/AUTH-ROLLOUT.md) / [Demo reset](docs/DEMO-RESET.md)
+- [Repo ownership](docs/THREE-REPO-DELIVERY.md) / [v1 contract](contracts/v1/README.md)
+- [Auth provenance](vendor/auth-provenance.json): commit active tarball and lockfile; no sibling repo required.
